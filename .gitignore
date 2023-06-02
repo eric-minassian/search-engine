@@ -1,7 +1,6 @@
 # COMPSCI121 Specific
 data/
-statistics/inverted_index.txt
-statistics/url_map.txt
+database/
 *.db
 *.pickle
 

@@ -1,10 +1,22 @@
+import configparser
+import os
+import time
 from argparse import ArgumentParser
 
+from flask import Flask, render_template, request
+from nltk import download
+
 from helpers.indexer import Indexer
+from helpers.search import Search
 
 
-def main() -> None:
-    parser = ArgumentParser(description="Indexer")
+def create_flask_app():
+    app = Flask(__name__)
+    download("punkt")
+
+    global indexer
+
+    parser = ArgumentParser(description="Search Engine")
     parser.add_argument(
         "--restart",
         action="store_true",
@@ -12,23 +24,43 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.restart:
-        indexer = Indexer(restart=True)
+    config = configparser.ConfigParser()
+    config.read("config.ini")
+
+    valid_files = os.path.exists(
+        config.get("DATABASE", "DatabaseFile")
+    ) and os.path.exists(
+        config.get("DATABASE", "DatabaseIndexFile")
+        and os.path.exists(config.get("DATABASE", "UrlMapFile"))
+    )
+
+    if args.restart or not valid_files:
+        print("Restarting indexer...")
+        indexer = Indexer(config_file=config, restart=True)
     else:
-        indexer = Indexer()
+        print("Loading indexer...")
+        indexer = Indexer(config_file=config)
 
-    search_query = input("Enter a search query: ")
-    while search_query != "exit":
-        urls = indexer.search(search_query)
+    search = Search(indexer=indexer)
 
-        print(f"Found {len(urls)} results.")
-        for url in urls:
-            print(url)
+    @app.route("/", methods=["GET", "POST"])
+    def home():
+        if request.method == "POST":
+            search_query = request.form["search_query"]
+            start_time = time.time()
+            urls = search.search(search_query)
+            end_time = time.time()
+            return render_template(
+                "index.html", query=search_query, urls=urls, time=end_time - start_time
+            )
+        return render_template("index.html", query="", urls=[], time=0)
 
-        search_query = input("Enter a search query: ")
-
-    indexer.close()
+    return app
 
 
 if __name__ == "__main__":
-    main()
+    app = create_flask_app()
+    try:
+        app.run()
+    finally:
+        indexer.close()

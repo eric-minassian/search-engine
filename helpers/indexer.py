@@ -1,7 +1,7 @@
 import json
 import os
 import pickle
-from collections import Counter
+from configparser import ConfigParser
 
 from bs4 import BeautifulSoup
 from nltk.downloader import download
@@ -13,9 +13,21 @@ from helpers.inverted_index import InvertedIndex
 
 
 class Indexer:
-    def __init__(self, restart=False) -> None:
+    def __init__(self, config_file: ConfigParser, restart=False) -> None:
+        self.database_file = config_file.get("DATABASE", "DatabaseFile")
+        self.database_index_file = config_file.get("DATABASE", "DatabaseIndexFile")
+        self.url_map_file = config_file.get("DATABASE", "UrlMapFile")
+
+        self.bold_weight = config_file.getfloat("INDEXER", "BoldWeight")
+        self.title_weight = config_file.getfloat("INDEXER", "TitleWeight")
+        self.header_weight = config_file.getfloat("INDEXER", "HeaderWeight")
+
+        self.config_file = config_file
+
         # Create the inverted index, url map, stemmer, and statistics objects.
-        self.database = InvertedIndexDatabase("database.db", restart)
+        self.database = InvertedIndexDatabase(
+            self.database_file, self.database_index_file, restart
+        )
         self.database.open()
 
         self.url_map = dict()
@@ -23,18 +35,16 @@ class Indexer:
 
         # If the restart flag is set, delete the inverted index file.
         if restart:
-            if os.path.exists("url_map.pickle"):
-                os.remove("url_map.pickle")
+            if os.path.exists(self.url_map_file):
+                os.remove(self.url_map_file)
 
-            if os.path.exists("statistics.pickle"):
-                os.remove("statistics.pickle")
-
-        if os.path.exists("url_map.pickle"):
+        if os.path.exists(self.url_map_file):
             # If the inverted index file exists, load it.
-            with open("url_map.pickle", "rb") as f:
+            with open(self.url_map_file, "rb") as f:
                 self.url_map = pickle.load(f)
 
-        if not os.path.exists("url_map.pickle") or restart:
+        else:
+            # If the inverted index file does not exist, create it.
             self.create_index()
 
     def close(self) -> None:
@@ -71,7 +81,52 @@ class Indexer:
                         stemmed_tokens = [self.stemmer.stem(token) for token in tokens]
 
                         # Count the frequency of each word.
-                        word_counts = Counter(stemmed_tokens)
+                        # word_counts = Counter(stemmed_tokens)
+                        # word_counts_dict = dict(word_counts)
+                        word_counts: dict[str, float] = dict()
+                        for token in stemmed_tokens:
+                            word_counts[token] = word_counts.get(token, 0) + 1
+
+                        # Add additional values for words in title, headers, and bold.
+                        bolded_words = ""
+                        title_words = ""
+                        header_words = ""
+
+                        for bold in soup.find_all("b"):
+                            bolded_words += str(bold.get_text()) + " "
+
+                        for title in soup.find_all("title"):
+                            title_words += str(title.get_text()) + " "
+
+                        for header in soup.find_all(["h1", "h2", "h3", "h4", "h5"]):
+                            header_words += str(header.get_text()) + " "
+
+                        bolded_words = word_tokenize(bolded_words)
+                        title_words = word_tokenize(title_words)
+                        header_words = word_tokenize(header_words)
+
+                        bolded_words = [
+                            self.stemmer.stem(word) for word in bolded_words
+                        ]
+                        title_words = [self.stemmer.stem(word) for word in title_words]
+                        header_words = [
+                            self.stemmer.stem(word) for word in header_words
+                        ]
+
+                        for word in bolded_words:
+                            word_counts[word] = (
+                                word_counts.get(word, 0) + self.bold_weight
+                            )
+
+                        for word in title_words:
+                            word_counts[word] = (
+                                word_counts.get(word, 0) + self.title_weight
+                            )
+
+                        for word in header_words:
+                            word_counts[word] = (
+                                word_counts.get(word, 0) + self.header_weight
+                            )
 
                         # Add the word counts to the inverted index.
                         for word, count in word_counts.items():
@@ -81,64 +136,13 @@ class Indexer:
 
         self.database.set(inverted_index)
 
-        # # If the statistics directory doesn't exist, create it.
-        # if not os.path.exists("statistics"):
-        #     os.makedirs("statistics")
+        self.database.convert_to_tf_idf()
 
-        # # Create the statistics file.
-        # self.statics.create_statistics(self.inverted_index, self.url_map)
-
-        # # Save the inverted index, url map, and statistics objects.
-        # with open("inverted_index.pickle", "wb") as f:
-        #     pickle.dump(self.inverted_index, f)
-
-        with open("url_map.pickle", "wb") as f:
+        with open(self.url_map_file, "wb") as f:
             pickle.dump(self.url_map, f)
 
-        # with open("statistics.pickle", "wb") as f:
-        #     pickle.dump(self.statics, f)
+    def get_postings(self, term: str) -> list:
+        return self.database.get(term)
 
-    def merge_list(
-        self, list1: list[tuple[int, int]], list2: list[tuple[int, int]]
-    ) -> list:
-        # Merge two lists of document ids.
-        merged_list = []
-
-        i, j = 0, 0
-
-        while i < len(list1) and j < len(list2):
-            if list1[i][0] == list2[j][0]:
-                merged_list.append(list1[i])
-                i += 1
-                j += 1
-            elif list1[i][0] < list2[j][0]:
-                i += 1
-            else:
-                j += 1
-
-        return merged_list
-
-    def search(self, query: str) -> list:
-        if self.database is None:
-            raise Exception("Database is not open.")
-
-        # Tokenize the query and stem each word.
-        tokens = word_tokenize(query)
-        stemmed_tokens = [self.stemmer.stem(token) for token in tokens]
-
-        if not stemmed_tokens:
-            return []
-
-        # Get the document ids for each word in the query.
-        document_ids: list[tuple[int, int]] = self.database.get(stemmed_tokens[0])
-        for token in stemmed_tokens[1:]:
-            if len(document_ids) == 0:
-                break
-            document_ids = self.merge_list(document_ids, self.database.get(token))
-
-        # Get the urls for each document id.
-        urls = []
-        for posting in document_ids:
-            urls.append(self.url_map[int(posting[0])])
-
-        return urls
+    def get_doc(self, doc_id: int) -> str:
+        return self.url_map[doc_id]
