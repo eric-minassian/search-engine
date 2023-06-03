@@ -1,0 +1,36 @@
+Good Runtime Performance:
+1. UCI
+2. software
+3. STEM
+4. eric
+5. kevin
+
+Good Ranking Performance:
+1. github
+2. march
+3. Information & Computer Science
+4. undergraduate
+5. android
+
+
+Bad Runtime Performance:
+1. What are the admission requirements for UCI's ICS program?
+2. Who is the current dean of UCI's School of Information and Computer Sciences?
+3. Are there any research opportunities available for undergraduate students in UCI's ICS department?
+4. What is the curriculum structure for the Bachelor of Science in Computer Science program at UCI?
+5. Can you provide information on the faculty members specializing in artificial intelligence at UCI's ICS department?
+
+Problem: The query is long and as a result has many pages that contain a minimum of one of the words in the query. This results in a large number of pages to be processed and ranked.
+Solution: Use a more complex ranking algorithm (tf-idf instead of boolean) that takes into account the number of times the query appears in the page, the number of times the query appears in the title, the number of times the query appears in the headers, etc. This will allow us to rank the pages more accurately and reduce the number of pages that need to be processed. Also implement simhash to reduce the number of pages that need to be processed by eliminating duplicate or near duplicate pages. 
+
+
+Bad Ranking Performance:
+1. cristina lopes
+2. machine learning
+3. michael shindler
+4. shannon alfaro
+5. alberto krone-martins
+
+Problem: The query is relatively short and about either a person or a broad subject matter. The top 5 results are typically long pages that have slight mentions of the query. Most of the content on these pages include part of the query many times, but are not query specifically.
+Solution: Add different weights to headers, titles, bolded text, etc. to make them more important than the rest of the text. Also, add tf-idf to the ranking algorithm.
+

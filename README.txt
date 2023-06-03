@@ -1,8 +1,8 @@
-# COMPSCI 121 Assignment 3
+COMPSCI 121 Assignment 3
 
-## By: Eric Minassian
+By: Eric Minassian
 
-## Setup
+Setup
 
 1. Clone Repo
 2. Run `pip install -r requirements.txt`
