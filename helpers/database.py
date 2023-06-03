@@ -28,15 +28,6 @@ class InvertedIndexDatabase:
             else:
                 self.refresh_index()
 
-    def close(self):
-        if self.database is None:
-            raise Exception("Database is not open.")
-
-        self.database.close()
-
-        with open(self.database_index_file, "wb") as f:
-            pickle.dump(self.index, f)
-
     def refresh_index(self):
         if self.database is None:
             raise Exception("Database is not open.")
@@ -64,8 +55,6 @@ class InvertedIndexDatabase:
 
         with open("database_temp.db", "w+") as f:
             for key, value in inverted_index.items():
-                # for i in range(len(value)):
-                #     value[i] = str(value[i])
                 value_str = [
                     str(x).replace("(", "").replace(")", "").replace(" ", "")
                     for x in value
@@ -81,6 +70,12 @@ class InvertedIndexDatabase:
                     new_value = "|".join(value_str)
 
                 f.write(f"{key}<>{new_value}\n")
+
+            for key, value in self.index.items():
+                if key not in inverted_index:
+                    self.database.seek(value)
+                    line = self.database.readline()
+                    f.write(line)
 
         self.database.close()
         os.remove(self.filename)
@@ -144,6 +139,15 @@ class InvertedIndexDatabase:
 
         self.database = open(self.filename, "a+")
         self.refresh_index()
+
+    def close(self):
+        if self.database is None:
+            raise Exception("Database is not open.")
+
+        self.database.close()
+
+        with open(self.database_index_file, "wb") as f:
+            pickle.dump(self.index, f)
 
     def __len__(self) -> int:
         if self.database is None:

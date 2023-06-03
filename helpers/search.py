@@ -9,7 +9,7 @@ class Search:
         self.indexer = indexer
         self.stemmer = PorterStemmer()
 
-    def search(self, query: str) -> list:
+    def search(self, query: str) -> list[str]:
         # Tokenize the query and stem each word.
         tokens = word_tokenize(query)
         stemmed_tokens = [self.stemmer.stem(token) for token in tokens]

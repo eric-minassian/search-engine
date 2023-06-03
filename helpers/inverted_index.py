@@ -29,6 +29,9 @@ class InvertedIndex:
     def __str__(self) -> str:
         return str(self.index)
 
+    def __contains__(self, term: str) -> bool:
+        return term in self.index
+
 
 if __name__ == "__main__":
     temp = InvertedIndex()

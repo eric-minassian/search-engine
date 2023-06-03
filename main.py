@@ -51,9 +51,13 @@ def create_flask_app():
             urls = search.search(search_query)
             end_time = time.time()
             return render_template(
-                "index.html", query=search_query, urls=urls, time=end_time - start_time
+                "index.html",
+                query=search_query,
+                urls=urls,
+                time=end_time - start_time,
+                count=len(urls),
             )
-        return render_template("index.html", query="", urls=[], time=0)
+        return render_template("index.html", query="", urls=[], time=0, count=0)
 
     return app
 

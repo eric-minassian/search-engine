@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import pickle
@@ -22,6 +23,8 @@ class Indexer:
         self.title_weight = config_file.getfloat("INDEXER", "TitleWeight")
         self.header_weight = config_file.getfloat("INDEXER", "HeaderWeight")
 
+        self.simhash_threshold = config_file.getfloat("INDEXER", "SimhashThreshold")
+
         self.config_file = config_file
 
         # Create the inverted index, url map, stemmer, and statistics objects.
@@ -32,6 +35,7 @@ class Indexer:
 
         self.url_map = dict()
         self.stemmer = PorterStemmer()
+        self.simhashes = dict()
 
         # If the restart flag is set, delete the inverted index file.
         if restart:
@@ -46,10 +50,6 @@ class Indexer:
         else:
             # If the inverted index file does not exist, create it.
             self.create_index()
-
-    def close(self) -> None:
-        if self.database is not None:
-            self.database.close()
 
     def create_index(self) -> None:
         # The document id is used to keep track of which document is being
@@ -80,58 +80,66 @@ class Indexer:
                         tokens = word_tokenize(text)
                         stemmed_tokens = [self.stemmer.stem(token) for token in tokens]
 
-                        # Count the frequency of each word.
-                        # word_counts = Counter(stemmed_tokens)
-                        # word_counts_dict = dict(word_counts)
-                        word_counts: dict[str, float] = dict()
-                        for token in stemmed_tokens:
-                            word_counts[token] = word_counts.get(token, 0) + 1
+                        # Calculate the simhash for the document.
+                        simhash = self.get_simhash(stemmed_tokens)
 
-                        # Add additional values for words in title, headers, and bold.
-                        bolded_words = ""
-                        title_words = ""
-                        header_words = ""
+                        # If the document is not unique, skip it.
+                        if self.is_unique(simhash):
+                            # Count the frequency of each word.
+                            # word_counts = Counter(stemmed_tokens)
+                            # word_counts_dict = dict(word_counts)
+                            word_counts: dict[str, float] = dict()
+                            for token in stemmed_tokens:
+                                word_counts[token] = word_counts.get(token, 0) + 1
 
-                        for bold in soup.find_all("b"):
-                            bolded_words += str(bold.get_text()) + " "
+                            # Add additional values for words in title, headers, and bold.
+                            bolded_words = ""
+                            title_words = ""
+                            header_words = ""
 
-                        for title in soup.find_all("title"):
-                            title_words += str(title.get_text()) + " "
+                            for bold in soup.find_all(["b", "strong"]):
+                                bolded_words += str(bold.get_text()) + " "
 
-                        for header in soup.find_all(["h1", "h2", "h3", "h4", "h5"]):
-                            header_words += str(header.get_text()) + " "
+                            for title in soup.find_all("title"):
+                                title_words += str(title.get_text()) + " "
 
-                        bolded_words = word_tokenize(bolded_words)
-                        title_words = word_tokenize(title_words)
-                        header_words = word_tokenize(header_words)
+                            for header in soup.find_all(["h1", "h2", "h3", "h4", "h5"]):
+                                header_words += str(header.get_text()) + " "
 
-                        bolded_words = [
-                            self.stemmer.stem(word) for word in bolded_words
-                        ]
-                        title_words = [self.stemmer.stem(word) for word in title_words]
-                        header_words = [
-                            self.stemmer.stem(word) for word in header_words
-                        ]
+                            bolded_words = word_tokenize(bolded_words)
+                            title_words = word_tokenize(title_words)
+                            header_words = word_tokenize(header_words)
 
-                        for word in bolded_words:
-                            word_counts[word] = (
-                                word_counts.get(word, 0) + self.bold_weight
-                            )
+                            bolded_words = [
+                                self.stemmer.stem(word) for word in bolded_words
+                            ]
+                            title_words = [
+                                self.stemmer.stem(word) for word in title_words
+                            ]
+                            header_words = [
+                                self.stemmer.stem(word) for word in header_words
+                            ]
 
-                        for word in title_words:
-                            word_counts[word] = (
-                                word_counts.get(word, 0) + self.title_weight
-                            )
+                            for word in bolded_words:
+                                word_counts[word] = word_counts.get(word, 0) + (
+                                    self.bold_weight - 1
+                                )
 
-                        for word in header_words:
-                            word_counts[word] = (
-                                word_counts.get(word, 0) + self.header_weight
-                            )
+                            for word in title_words:
+                                word_counts[word] = word_counts.get(word, 0) + (
+                                    self.title_weight - 1
+                                )
 
-                        # Add the word counts to the inverted index.
-                        for word, count in word_counts.items():
-                            inverted_index.add(word, document_id, count)
+                            for word in header_words:
+                                word_counts[word] = word_counts.get(word, 0) + (
+                                    self.header_weight - 1
+                                )
 
+                            # Add the word counts to the inverted index.
+                            for word, count in word_counts.items():
+                                inverted_index.add(word, document_id, count)
+
+                        self.simhashes[document_id] = simhash
                         document_id += 1
 
         self.database.set(inverted_index)
@@ -141,8 +149,57 @@ class Indexer:
         with open(self.url_map_file, "wb") as f:
             pickle.dump(self.url_map, f)
 
+    def get_hash(self, token: str) -> int:
+        # Get the hash of the token
+        return int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16)
+
+    def get_simhash(self, tokenize_data: list[str], hashbits=128) -> int:
+        # Calculate the simhash of the tokenized data
+
+        # Initialize the vector
+        v = [0] * hashbits
+
+        # Loop through each token in the tokenized data
+        for t in [self.get_hash(token) for token in tokenize_data]:
+            # Loop through each bit in the hash
+            for i in range(hashbits):
+                bitmask = 1 << i
+                if t & bitmask:
+                    v[i] += 1
+                else:
+                    v[i] -= 1
+
+        # Calculate the fingerprint
+        fingerprint = 0
+        for i in range(hashbits):
+            if v[i] >= 0:
+                fingerprint += 1 << i
+
+        return fingerprint
+
+    def similarity(self, hash1: int, hash2: int, hashbits=128) -> float:
+        # Calculate the similarity between two hashes
+
+        # If the hashes are the same then return 1.0
+        if hash1 == hash2:
+            return 1.0
+
+        # Calculate the similarity between the hashes
+        return 1.0 - (bin(hash1 ^ hash2).count("1") / hashbits)
+
+    def is_unique(self, simhash: int) -> bool:
+        for url, hash in self.simhashes.items():
+            if self.similarity(simhash, hash) >= self.simhash_threshold:
+                return False
+
+        return True
+
     def get_postings(self, term: str) -> list:
         return self.database.get(term)
 
     def get_doc(self, doc_id: int) -> str:
         return self.url_map[doc_id]
+
+    def close(self) -> None:
+        if self.database is not None:
+            self.database.close()
