@@ -1,4 +1,4 @@
-# COMPSCI 121 Assignment 3
+# Basic Search Engine
 
 ## By: Eric Minassian
 
